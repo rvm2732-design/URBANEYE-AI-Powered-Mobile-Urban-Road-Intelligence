@@ -103,154 +103,361 @@ Three buses independently seeing the same GPS location leads to one geo-clustere
 Vision (camera) + IMU (gyroscope/accelerometer) + GPS + temporal consistency produces more trustworthy severity and location data than camera-only detection.
 
 ---
-
 ## Tech Stack
 
-### Edge (Raspberry Pi 4)
+UrbanEye — System Architecture
 
-| Component | Technology |
-|---|---|
-| Video capture | OpenCV, libcamera |
-| AI model | YOLOv8 Nano, Float16 TFLite |
-| GPS | Python + gpsd / serial |
-| IMU | Python + smbus2 (I2C, MPU6050) |
-| Runtime | Python 3.11, Linux (Raspberry Pi OS) |
+UrbanEye follows a layered architecture in which the React frontend provides the operational interface, Google Maps provides geographic visualization, Supabase provides persistent PostgreSQL storage, and the application API layer manages access to detection data.
 
-### Backend (Server)
+┌─────────────────────────────────────────────────────────────┐
+│                         URBANEYE                             │
+│              Urban Road Intelligence Platform               │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    PRESENTATION LAYER                        │
+│                     React + Vite                             │
+│                                                             │
+│  GIS Dashboard │ Event Detail │ Maintenance │ Fleet │ Reports│
+└───────────────┬──────────────────────────────┬───────────────┘
+                │                              │
+                ▼                              ▼
+┌──────────────────────────┐       ┌───────────────────────────┐
+│   GOOGLE MAPS LAYER      │       │      API / DATA LAYER     │
+│                          │       │                           │
+│ Google Maps JavaScript   │       │ events.js                 │
+│ API                      │       │ Supabase Client            │
+│                          │       │                           │
+│ Detection markers        │       │ Data retrieval/normalizing │
+└──────────────────────────┘       └─────────────┬─────────────┘
+                                                 │
+                                                 ▼
+                                  ┌───────────────────────────┐
+                                  │       DATA LAYER           │
+                                  │                           │
+                                  │        Supabase            │
+                                  │      PostgreSQL DB         │
+                                  │                           │
+                                  │       detections           │
+                                  └───────────────────────────┘
+1. UI/UX Architecture — Stitch → React
 
-| Component | Technology |
-|---|---|
-| API | FastAPI (Python) |
-| Database | PostgreSQL + PostGIS |
-| Geo-clustering | DBSCAN / Haversine |
-| Deployment | Railway / Render |
+The interface development started with Stitch as the UI/UX design and prototyping layer.
 
-### Frontend (Dashboard)
+Design Concept
+      │
+      ▼
+   Stitch
+      │
+      │ UI / UX reference
+      ▼
+React Components
+      │
+      ▼
+Tailwind CSS
+      │
+      ▼
+Operational Dashboard
 
-| Component | Technology |
-|---|---|
-| Framework | React + Vite |
-| Maps | Google Maps JavaScript API |
-| UI design | Google Stitch to custom CSS |
-| State management | React Query |
+Stitch was used to establish the visual direction and screen structure.
 
----
+The final application was then implemented as actual React components rather than relying on the Stitch prototype itself.
 
-## Dashboard — 4 Screens
+Dashboard modules
+UrbanEye
+│
+├── GIS Dashboard
+├── Event Detail
+├── Maintenance Queue
+├── Fleet Status
+└── Reports
 
-| Screen | Purpose |
-|---|---|
-| GIS Live Map | Severity-colored pins on real city map (critical / moderate / minor) |
-| Event Detail | Detection frame + GPS + confidence + cross-validation + dispatch |
-| Maintenance Queue | Priority-sorted list of confirmed defects |
-| Fleet Status | Active buses — camera health, GPS signal, route coverage |
+This gives us a clear separation between:
 
----
+Stitch = design/prototyping
 
-## Full Pipeline
+and
 
-```
-VIDEO -> AI -> EVENT -> GEO -> FUSE -> TRUST -> ACT
-Camera  YOLOv8  Class+conf  GPS  Repeat  IMU+Shadow  GIS
-```
+React + Tailwind = implemented application
 
----
+2. Frontend Architecture
 
-## Feasibility and Validation
+The frontend is built using React + Vite, with Tailwind CSS providing the styling system.
 
-| Layer | What exists | SIH upgrade | Validation metric |
-|---|---|---|---|
-| AI perception | Multi-anomaly detector | Extend classes | mAP / F1 / per-class recall |
-| Edge deployment | Hardware-software prototype | Optimize + quantize | FPS, latency, power |
-| Localization | Video events | GPS + timestamp + route ID | Geo-error / event completeness |
-| Sensor fusion | Road anomaly outputs | IMU combination + confidence fusion | False-positive reduction |
-| Fleet intelligence | Single-device logic | Multi-bus ingestion + deduplication | Duplicate-collapse rate |
-| Urban platform | Prototype output | GIS map + heat maps + maintenance queue | End-to-end alert latency |
+React Application
+│
+├── Pages
+│   ├── Dashboard
+│   ├── EventDetail
+│   ├── MaintenanceQueue
+│   ├── FleetStatus
+│   └── Reports
+│
+├── Components
+│   ├── Layout
+│   ├── Map
+│   ├── Detection
+│   ├── Queue
+│   └── Fleet
+│
+├── API
+│   ├── events.js
+│   └── supabase.js
+│
+└── Styles
+    └── Tailwind CSS
+Frontend responsibilities
 
-Validation Plan: mAP/F1, edge FPS/latency, localization error, false-positive rate, duplicate-collapse rate, event-to-dashboard latency, route coverage.
+The React application is responsible for:
 
----
+rendering the operational dashboard
+retrieving detection records
+displaying geographic events
+displaying individual event information
+generating the maintenance queue
+aggregating detections by vehicle
+displaying fleet status
+presenting reports and analytics
+3. API / Data Access Architecture
 
-## Impact
+Instead of allowing every page to directly communicate with the database, UrbanEye uses an application data-access layer.
 
-- Transport Authorities — Road-condition inventory, maintenance queue, evidence-backed alerts
-- Citizens / Road Safety — Earlier hazard identification, faster response
-- City Decision Support — GIS layers + heat maps + severity leads to right repair at the right place
-- Scalability — One route to one city to multi-city state transport fleet
+React Page
+    │
+    ▼
+getDetections()
+    │
+    ▼
+src/api/events.js
+    │
+    ▼
+Supabase Client
+    │
+    ▼
+Supabase Database
 
-KEY OUTCOME: continuous sensing -> trusted evidence -> prioritized action
+The current detection retrieval function:
 
----
+const { data, error } = await supabase
+  .from("detections")
+  .select("*")
+  .order("timestamp", { ascending: false });
 
-## Research and References
+The API layer also normalizes database fields for the frontend.
 
-| # | Paper |
-|---|---|
-| R1 | YOLOv8 Road Damage Detection — IEEE Xplore 2023 |
-| R2 | YOLOv8-PD Pavement Distress Detection — Nature Scientific Reports 2024 |
-| R3 | TFLite vs TensorFlow on Raspberry Pi 4 — ResearchGate 2023 |
-| R4 | IMU Road Anomaly Detection — PMC / MDPI |
-| R5 | GPS + IMU Sensor Fusion for Vehicles — IEEE Xplore |
-| R6 | Crowdsensing Road Monitoring using Vehicles — Springer 2020 |
-| R7 | YOLOv8 on Edge Devices Benchmark — arXiv 2026 |
+For example:
 
----
+latitude   → lat
+longitude  → lng
+bus_id     → busId
 
-## Live Demo
+This prevents database-specific naming from leaking throughout the UI.
 
-Raspberry Pi 4 running YOLOv8 Nano detecting road anomalies in real time at 7.89 FPS — no GPU, no cloud.
+4. Supabase Architecture
 
-Demo video: https://youtu.be/UumkTK9gZ_Q
+Supabase currently provides the persistent backend data layer.
 
----
+                    SUPABASE
+                       │
+              ┌────────┴────────┐
+              │                 │
+         PostgreSQL            RLS
+          Database         Access Policies
+              │
+              ▼
+        detections table
 
-## Team — Fleet Sense
+The detections table currently stores information such as:
 
-| Role | Domain |
-|---|---|
-| ML / Model Training | YOLOv8, TFLite, dataset annotation |
-| Edge Hardware | Raspberry Pi 4, GPS, IMU wiring |
-| Backend API | FastAPI, PostgreSQL, geo-clustering |
-| Frontend Dashboard | React, Google Maps API |
-| Documentation | PPT, report, research |
+id
+bus_id
+route
+type
+severity
+confidence
+latitude
+longitude
+speed
+imu_confirmed
+timestamp
+location
+status
 
-College: SSGMCE Shegaon
-Problem Statement: SIH26124 — Bharat Electronics Limited (BEL)
-Category: Software + Hardware
-Hackathon: Smart India Hackathon 2026
+This means detection information is persisted outside the React application.
 
----
+The frontend can retrieve the same records whenever the application loads.
 
-## Repository Structure
+5. Database Architecture
 
-```
-fleet-sense/
-|
-+-- edge/                    # Raspberry Pi 4 code
-|   +-- detect.py            # Main detection loop
-|   +-- gps_reader.py        # GPS module interface
-|   +-- imu_reader.py        # IMU sensor interface
-|   +-- event_uploader.py    # Upload confirmed events
-|   +-- models/              # YOLOv8 TFLite model files
-|
-+-- backend/                 # FastAPI server
-|   +-- main.py              # API endpoints
-|   +-- geo_cluster.py       # Geo-clustering logic
-|   +-- severity_scorer.py   # Severity calculation
-|   +-- database/            # PostgreSQL + PostGIS setup
-|
-+-- dashboard/               # React frontend
-|   +-- src/
-|   |   +-- pages/           # GIS Map, Event Detail, Queue, Fleet
-|   |   +-- components/      # Shared UI components
-|   |   +-- api/             # Backend API calls
-|   +-- public/
-|
-+-- docs/                    # Documentation
-    +-- SIH_PPT.pdf
-    +-- technical_approach.pdf
-```
+The current database model is centered around the detection event.
 
----
+Detection Event
+│
+├── Identity
+│   └── id
+│
+├── Vehicle
+│   ├── bus_id
+│   └── route
+│
+├── Detection
+│   ├── type
+│   ├── severity
+│   └── confidence
+│
+├── Location
+│   ├── latitude
+│   ├── longitude
+│   └── location
+│
+├── Telemetry
+│   ├── speed
+│   └── imu_confirmed
+│
+└── Event State
+    ├── timestamp
+    └── status
 
-SIH 2026 | SIH26124 | AI-Powered Mobile Urban Intelligence Platform Using Public Transport Fleet | Fleet Sense | SSGMCE Shegaon
+This event-centric structure is important because the same detection can be consumed by multiple dashboard modules.
+
+6. Google Maps Architecture
+
+Google Maps is used as the geographic visualization layer.
+
+Supabase
+   │
+   │ latitude + longitude
+   ▼
+getDetections()
+   │
+   ▼
+Dashboard
+   │
+   ▼
+GISMap.jsx
+   │
+   ▼
+Google Maps JavaScript API
+   │
+   ▼
+Real Map + Detection Marker
+
+The coordinates stored in Supabase are converted into map positions:
+
+const position = {
+  lat: detection.lat,
+  lng: detection.lng,
+};
+
+The detection is then displayed as a marker on the Google Map.
+
+Therefore:
+
+Database detection → geographic coordinates → map visualization
+
+7. Dashboard Data Architecture
+
+One of the important architectural decisions is that the dashboard screens don't maintain separate copies of the detection data.
+
+Instead:
+
+                 Supabase
+                    │
+                    ▼
+              getDetections()
+                    │
+                    ▼
+              React Application
+                    │
+        ┌───────────┼───────────┐
+        │           │           │
+        ▼           ▼           ▼
+     GIS Map    Event Detail   Queue
+        │           │           │
+        └───────────┼───────────┘
+                    │
+                    ▼
+               Fleet Status
+                    │
+                    ▼
+                 Reports
+
+This means a detection inserted into Supabase can automatically become part of multiple operational views.
+
+For example:
+
+BUS-204
+Pothole
+Critical
+96.8%
+20.5524, 76.5699
+
+can appear as:
+
+a map marker
+an event detail
+a maintenance queue item
+a fleet detection
+a report statistic
+8. Security Architecture
+
+The frontend uses the Supabase publishable key, not the secret/service-role key.
+
+React Frontend
+      │
+      │ Publishable Key
+      ▼
+Supabase
+      │
+      ▼
+Row Level Security
+      │
+      ▼
+Allowed Operations
+
+Row Level Security is enabled for the detection table.
+
+The secret/service-role credential is not exposed in the frontend.
+
+9. Current End-to-End Architecture
+    
+                         URBANEYE
+                            │
+                            ▼
+                  ┌──────────────────┐
+                  │ React + Vite      │
+                  │ Tailwind CSS      │
+                  └────────┬─────────┘
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+             ▼                           ▼
+      Google Maps API             Application API
+             │                           │
+             │                           ▼
+             │                   Supabase Client
+             │                           │
+             │                           ▼
+             │                     Supabase
+             │                     PostgreSQL
+             │                           │
+             └─────────────┬─────────────┘
+                           │
+                           ▼
+                    Detection Events
+
+10. Architecture - Story
+
+| Layer            | Technology                 | Role                                       |
+| ---------------- | -------------------------- | ------------------------------------------ |
+| UI/UX Design     | Stitch                     | Interface prototyping and visual reference |
+| Frontend         | React                      | Application interface                      |
+| Build Tool       | Vite                       | Development/build pipeline                 |
+| Styling          | Tailwind CSS               | UI styling                                 |
+| Maps             | Google Maps JavaScript API | Geographic visualization                   |
+| Data Access      | Supabase JS                | Database communication                     |
+| Backend Database | Supabase PostgreSQL        | Persistent detection storage               |
+| Security         | Supabase RLS               | Database access control                    |
+| Future Edge AI   | YOLOv8 / Raspberry Pi      | Road-event perception                      |
+| Future Sensors   | GPS + IMU                  | Localization and event verification        |
